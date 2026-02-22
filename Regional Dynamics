@@ -1,0 +1,117 @@
+import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+
+np.random.seed(42)
+
+# ── Region definitions: (name, color_mean, color_ci, reduction_pct) ──────────
+regions = [
+    ("Frontal Cortex",  "#2166ac", "#9ecae1",  88),
+    ("Temporal Cortex", "#d94801", "#fdae6b",  84),
+    ("Thalamus",        "#238b45", "#a1d99b",  88),
+    ("Hippocampus",     "#cb181d", "#fc9272",  86),
+    ("Basal Ganglia",   "#6a51a3", "#bcbddc",  85),
+    ("Cerebellum",      "#8c6d31", "#e6c47a",  80),
+]
+
+t = np.linspace(0, 350, 500)
+
+def gm2_trajectory(t, reduction_pct, n_real=1000):
+    """
+    Milstein SDE with additive + multiplicative noise.
+    Wide bands early (high G, high variance), narrowing but still visible at steady state.
+    dG = -k*(G - G_term)*dt + (sigma_mult*G + sigma_add)*dW
+    """
+    baseline    = 890.0
+    terminal    = baseline * (1.0 - reduction_pct / 100.0)
+    decay_k     = 0.025
+    sigma_mult  = 0.055   # proportional noise
+    sigma_add   = 5.0     # small additive floor
+    dt          = t[1] - t[0]
+    n_steps     = len(t)
+
+    rng = np.random.default_rng(seed=7)
+    G   = np.full(n_real, baseline) + rng.normal(0, 20, n_real)
+    G   = np.clip(G, 1, None)
+
+    trajectories        = np.zeros((n_real, n_steps))
+    trajectories[:, 0]  = G.copy()
+
+    for i in range(1, n_steps):
+        dW        = rng.normal(0, np.sqrt(dt), n_real)
+        drift     = -decay_k * (G - terminal)
+        noise_amp = sigma_mult * G + sigma_add
+        # Milstein correction for linear-in-G diffusion: sigma_mult*(dW^2 - dt)
+        milstein  = 0.5 * sigma_mult * noise_amp * (dW**2 - dt)
+        G         = G + drift * dt + noise_amp * dW + milstein
+        G         = np.clip(G, 0, None)
+        trajectories[:, i] = G
+
+    p05     = np.percentile(trajectories,  5, axis=0)
+    p95     = np.percentile(trajectories, 95, axis=0)
+    mn      = np.mean(trajectories, axis=0)
+    # Pick 20 representative individual traces
+    idx     = rng.integers(0, n_real, 20)
+    samples = trajectories[idx]
+
+    return mn, p05, p95, samples
+
+# ── Layout ───────────────────────────────────────────────────────────────────
+fig = plt.figure(figsize=(14, 8.5))
+fig.patch.set_facecolor('white')
+
+gs = gridspec.GridSpec(2, 3, figure=fig,
+                       hspace=0.38, wspace=0.32,
+                       left=0.07, right=0.97, top=0.88, bottom=0.08)
+
+axes = [fig.add_subplot(gs[r, c]) for r in range(2) for c in range(3)]
+
+for ax, (name, col_mean, col_ci, reduc) in zip(axes, regions):
+    mn, p05, p95, samples = gm2_trajectory(t, reduc)
+
+    # Individual stochastic traces (faint, behind everything)
+    for s in samples:
+        ax.plot(t, s, color=col_mean, lw=0.3, alpha=0.15, zorder=1)
+
+    # CI shading
+    ax.fill_between(t, p05, p95, color=col_ci, alpha=0.50, zorder=2, label='5–95% CI')
+
+    # Mean
+    ax.plot(t, mn, color=col_mean, lw=2.0, zorder=3, label='Mean (Treatment)')
+
+    # Annotate reduction
+    ax.text(0.97, 0.12, f'≈{reduc}% reduction',
+            transform=ax.transAxes,
+            ha='right', va='bottom',
+            fontsize=8.5, color='#333333',
+            bbox=dict(boxstyle='round,pad=0.3', fc='white', ec='#aaaaaa', alpha=0.85))
+
+    ax.set_title(f'GM2 (Therapy: AAV+FUS+SP²) — {name}',
+                 fontsize=8.5, pad=5, color='#222222')
+    ax.set_xlabel('Time (days)', fontsize=8)
+    ax.set_ylabel('GM2 (nmol/g)', fontsize=8)
+    ax.tick_params(labelsize=7.5)
+    ax.set_xlim(0, 350)
+    ax.set_ylim(0, 1050)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['left'].set_color('#aaaaaa')
+    ax.spines['bottom'].set_color('#aaaaaa')
+    ax.yaxis.set_tick_params(color='#aaaaaa')
+    ax.xaxis.set_tick_params(color='#aaaaaa')
+    ax.set_facecolor('#fafafa')
+
+    leg = ax.legend(fontsize=7.5, loc='upper right',
+                    framealpha=0.85, edgecolor='#cccccc',
+                    handlelength=1.5, handletextpad=0.4)
+
+fig.suptitle(
+    r'Regional GM2 Dynamics Under Tri-Modal Therapy (AAV-T4 + FUS + SP²) — $N = 1{,}000$ Milstein Realizations',
+    fontsize=11, fontweight='bold', y=0.97, color='#111111'
+)
+
+out = '/home/claude/fig-004.png'
+fig.savefig(out, dpi=180, bbox_inches='tight', facecolor='white')
+print(f"Saved to {out}")
