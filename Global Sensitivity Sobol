@@ -1,0 +1,238 @@
+#!/usr/bin/env python3
+"""
+Sobol Sensitivity Analysis Figure - Colab Version
+Generates the actual Sobol figure with real data from your analysis
+Displays inline in Colab/Jupyter notebook
+"""
+
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib import gridspec
+
+# ============================================================================
+# ACTUAL SOBOL RESULTS FROM YOUR ANALYSIS
+# ============================================================================
+
+# These are the REAL values from your Sobol analysis output
+S1 = np.array([
+    9.09474775e-01,  # 0: k_T4_entry (BBB entry)
+    0.00000000e+00,  # 1: k_clear (immune clearance)
+    0.00000000e+00,  # 2: alpha_FUS (FUS enhancement)
+    1.36104729e-02,  # 3: k_synth (GM2 synthesis)
+    0.00000000e+00,  # 4: k_expr (expression rate)
+    7.96392767e-03,  # 5: K_m (Michaelis constant)
+    5.50327127e-02,  # 6: V_max (enzymatic capacity)
+    0.00000000e+00,  # 7: k_decay (enzyme decay)
+    0.00000000e+00,  # 8: IC50 (SRT potency)
+    0.00000000e+00,  # 9: G_thr (inflammation threshold)
+    0.00000000e+00,  # 10: k_inf (inflammation rate)
+    0.00000000e+00,  # 11: k_res (resolution rate)
+    1.22017610e-04,  # 12: p_g (GM2 damage coefficient)
+    0.00000000e+00,  # 13: p_i (inflammation damage)
+    0.00000000e+00,  # 14: k_clin (clinical relaxation)
+    0.00000000e+00   # 15: sigma (noise amplitude)
+])
+
+ST = np.array([
+    9.09002216e-01,  # 0: k_T4_entry (BBB entry)
+    0.00000000e+00,  # 1: k_clear
+    0.00000000e+00,  # 2: alpha_FUS
+    1.34899144e-02,  # 3: k_synth
+    0.00000000e+00,  # 4: k_expr
+    2.36914419e-02,  # 5: K_m
+    6.97764420e-02,  # 6: V_max (enzymatic capacity)
+    0.00000000e+00,  # 7: k_decay
+    0.00000000e+00,  # 8: IC50
+    0.00000000e+00,  # 9: G_thr
+    0.00000000e+00,  # 10: k_inf
+    0.00000000e+00,  # 11: k_res
+    1.08050800e-04,  # 12: p_g
+    0.00000000e+00,  # 13: p_i
+    0.00000000e+00,  # 14: k_clin
+    0.00000000e+00   # 15: sigma
+])
+
+# Parameter names
+param_names_full = [
+    r'$k_{\mathrm{T4,entry}}$ (BBB entry)',
+    r'$k_{\mathrm{clear}}$ (immune clearance)',
+    r'$\alpha_{\mathrm{FUS}}$ (FUS enhancement)',
+    r'$k_{\mathrm{synth}}$ (GM2 synthesis)',
+    r'$k_{\mathrm{expr}}$ (expression rate)',
+    r'$K_m$ (Michaelis constant)',
+    r'$V_{\mathrm{max}}$ (enzymatic capacity)',
+    r'$k_{\mathrm{decay}}$ (enzyme decay)',
+    r'$IC_{50}$ (SRT potency)',
+    r'$G_{\mathrm{thr}}$ (inflam. threshold)',
+    r'$k_{\mathrm{inf}}$ (inflammation rate)',
+    r'$k_{\mathrm{res}}$ (resolution rate)',
+    r'$p_g$ (GM2 damage coeff)',
+    r'$p_i$ (inflam. damage coeff)',
+    r'$k_{\mathrm{clin}}$ (clinical relax)',
+    r'$\sigma$ (noise amplitude)'
+]
+
+# ============================================================================
+# FILTER AND SORT SIGNIFICANT PARAMETERS
+# ============================================================================
+
+# Only show parameters with ST > 0.0001
+threshold = 1e-4
+significant_indices = np.where(ST > threshold)[0]
+
+param_names = [param_names_full[i] for i in significant_indices]
+ST_values = ST[significant_indices]
+S1_values = S1[significant_indices]
+
+# Sort by ST value (descending)
+sort_idx = np.argsort(ST_values)[::-1]
+param_names = [param_names[i] for i in sort_idx]
+ST_values = ST_values[sort_idx]
+S1_values = S1_values[sort_idx]
+
+print("="*70)
+print("SOBOL SENSITIVITY ANALYSIS RESULTS")
+print("="*70)
+print("\nSignificant Parameters (ST > 0.0001):")
+for name, st, s1 in zip(param_names, ST_values, S1_values):
+    print(f"  {name:50s} S_T={st:.6f}, S_1={s1:.6f}")
+
+# Calculate dominance ratios
+BBB_ST = ST_values[0]
+BBB_S1 = S1_values[0]
+V_max_idx = np.where([r'$V_{\mathrm{max}}$' in name for name in param_names])[0]
+
+if len(V_max_idx) > 0:
+    V_max_ST = ST_values[V_max_idx[0]]
+    V_max_S1 = S1_values[V_max_idx[0]]
+    ratio_ST = BBB_ST / V_max_ST
+    ratio_S1 = BBB_S1 / V_max_S1
+    print(f"\n{'='*70}")
+    print(f"DOMINANCE RATIOS:")
+    print(f"  Total-order (S_T): {BBB_ST:.3f} / {V_max_ST:.3f} = {ratio_ST:.1f}×")
+    print(f"  First-order (S_1): {BBB_S1:.3f} / {V_max_S1:.3f} = {ratio_S1:.1f}×")
+    print(f"{'='*70}\n")
+
+# ============================================================================
+# GENERATE FIGURE
+# ============================================================================
+
+def generate_sobol_figure():
+    """
+    Generate 2-panel Sobol sensitivity figure
+    Panel A: Horizontal bar chart of sensitivity indices
+    Panel B: Pie chart showing variance attribution
+    """
+    
+    fig = plt.figure(figsize=(15, 6))
+    gs = gridspec.GridSpec(1, 2, width_ratios=[1.2, 1], wspace=0.3)
+    
+    # ========================================================================
+    # PANEL A: Bar Chart of Sobol Indices
+    # ========================================================================
+    
+    ax_a = fig.add_subplot(gs[0])
+    
+    y_pos = np.arange(len(param_names))
+    
+    # Color gradient: red for dominant, fading to light red
+    colors = plt.cm.Reds(np.linspace(0.9, 0.3, len(param_names)))
+    
+    # Create horizontal bars
+    bars = ax_a.barh(y_pos, ST_values, color=colors, edgecolor='black', 
+                      linewidth=1.5, alpha=0.85)
+    
+    # Add value labels at end of bars
+    for i, (st_val, s1_val) in enumerate(zip(ST_values, S1_values)):
+        label_text = f'{st_val:.4f}' if st_val < 0.1 else f'{st_val:.3f}'
+        ax_a.text(st_val + 0.01, i, label_text,
+                  va='center', fontsize=10, fontweight='bold')
+    
+    # Styling
+    ax_a.set_yticks(y_pos)
+    ax_a.set_yticklabels(param_names, fontsize=10)
+    ax_a.set_xlabel('Sobol Total-Order Index $S_T$', fontsize=12, fontweight='bold')
+    ax_a.set_title('A. Global Sensitivity Analysis', fontsize=13, 
+                   fontweight='bold', loc='left', pad=15)
+    ax_a.set_xlim(0, 1.0)
+    ax_a.grid(axis='x', alpha=0.3, linestyle='--', linewidth=1)
+    ax_a.axvline(x=0, color='black', linewidth=2)
+    ax_a.tick_params(axis='both', labelsize=10)
+    
+    # Add dominance ratio annotation
+    if len(V_max_idx) > 0:
+        ax_a.text(0.98, 0.98, f'BBB Entry / $V_{{\\mathrm{{max}}}}$ = {ratio_ST:.1f}×',
+                  transform=ax_a.transAxes, fontsize=13, fontweight='bold',
+                  bbox=dict(boxstyle='round,pad=0.6', facecolor='yellow', 
+                           edgecolor='red', linewidth=2.5, alpha=0.9),
+                  verticalalignment='top', horizontalalignment='right')
+    
+    # ========================================================================
+    # PANEL B: Pie Chart - Variance Decomposition
+    # ========================================================================
+    
+    ax_b = fig.add_subplot(gs[1])
+    
+    # Prepare pie chart data
+    pie_labels = []
+    pie_values = []
+    pie_colors = []
+    
+    # BBB entry
+    pie_labels.append(f'BBB Entry\n({BBB_ST*100:.1f}%)')
+    pie_values.append(BBB_ST)
+    pie_colors.append('#d62728')
+    
+    # V_max (enzymatic capacity)
+    if len(V_max_idx) > 0:
+        pie_labels.append(f'Enzymatic\nCapacity\n({V_max_ST*100:.1f}%)')
+        pie_values.append(V_max_ST)
+        pie_colors.append('#ff7f0e')
+    
+    # Other parameters combined
+    other_indices = [i for i in range(len(ST_values)) 
+                     if i != 0 and (len(V_max_idx) == 0 or i != V_max_idx[0])]
+    if len(other_indices) > 0:
+        other_sum = np.sum(ST_values[other_indices])
+        if other_sum > 0:
+            pie_labels.append(f'Other\nParameters\n({other_sum*100:.1f}%)')
+            pie_values.append(other_sum)
+            pie_colors.append('#cccccc')
+    
+    # Create pie chart
+    explode = tuple([0.1] + [0]*(len(pie_values)-1))  # Explode BBB slice
+    
+    wedges, texts, autotexts = ax_b.pie(
+        pie_values, 
+        labels=pie_labels,
+        autopct='',  # We'll use custom labels
+        startangle=90,
+        colors=pie_colors,
+        explode=explode,
+        textprops={'fontsize': 11, 'fontweight': 'bold'},
+        wedgeprops={'edgecolor': 'black', 'linewidth': 2}
+    )
+    
+    ax_b.set_title('B. Outcome Variance Attribution', 
+                   fontsize=13, fontweight='bold', pad=15)
+    
+    plt.tight_layout()
+    
+    # Display in Colab/Jupyter
+    plt.show()
+    
+    return fig
+
+# ============================================================================
+# MAIN EXECUTION
+# ============================================================================
+
+if __name__ == "__main__":
+    print("\nGenerating Sobol Sensitivity Figure...\n")
+    fig = generate_sobol_figure()
+    print("\n✓ Figure displayed above")
+    print("\nInterpretation:")
+    print("  - BBB entry (k_T4_entry) dominates with 90.9% of variance")
+    print("  - Enzymatic capacity (V_max) contributes only 7.0%")
+    print("  - This 13.0× difference validates the 'delivery-first' paradigm")
+    print("  - Improving BBB penetration is 13× more impactful than enzyme optimization")
