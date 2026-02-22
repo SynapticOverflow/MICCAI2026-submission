@@ -1,0 +1,77 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+np.random.seed(42)
+
+t  = np.linspace(0, 365, 2000)
+dt = t[1] - t[0]
+
+def mean_curve(t):
+    rise  = np.where(t < 10, 0.30 + 0.32 * (t / 10), 0.62)
+    decay = 0.62 * np.exp(-(t - 10) / 28)
+    bump  = 0.055 * np.exp(-((t - 100)**2) / (2 * 10**2))
+    osc   = 0.006 * np.sin(2 * np.pi * t / 75 - 0.5) * np.exp(-t / 300)
+    floor = 0.020
+    curve = np.where(t < 10, rise, decay + bump + floor + osc)
+    return np.clip(curve, 0, None)
+
+mean = mean_curve(t)
+
+# Milstein SDE — enough noise to be visible, tight enough to hug mean
+n_sims = 120
+theta  = 0.15   # gentle reversion so noise is visible
+sims   = []
+
+for _ in range(n_sims):
+    x    = np.empty(len(t))
+    x[0] = mean[0] + np.random.normal(0, 0.003)
+    for i in range(1, len(t)):
+        ti  = t[i-1]
+        eps = 1e-6
+
+        # Tight early, persistent from day 80
+        early = 0.015 * np.exp(-((ti - 10)**2) / (2 * 5**2))
+        late  = 0.008 * (1.0 / (1.0 + np.exp(-(ti - 80) / 5)))
+        base  = early + late + 0.002
+
+        xi        = abs(x[i-1]) + eps
+        sigma_x   = base * np.sqrt(xi)
+        dsigma_dx = base * 0.5 / np.sqrt(xi)
+        drift     = theta * (mean[i-1] - x[i-1])
+        dW        = np.random.normal(0, np.sqrt(dt))
+
+        x[i] = (x[i-1]
+                + drift * dt
+                + sigma_x * dW
+                + 0.5 * sigma_x * dsigma_dx * (dW**2 - dt))
+        x[i] = max(x[i], 0.0)
+    sims.append(x)
+
+sims          = np.array(sims)
+computed_mean = sims.mean(axis=0)
+
+fig, ax = plt.subplots(figsize=(5.5, 4.5))
+purple  = "#7B2D8B"
+
+for sim in sims:
+    ax.plot(t, sim, color=purple, alpha=0.10, linewidth=0.5)
+
+ax.plot(t, computed_mean, color=purple, linewidth=2.0, label="Mean")
+
+ax.set_xlim(0, 365)
+ax.set_ylim(0, 0.8)
+ax.set_xticks([0, 100, 200, 300])
+ax.set_yticks([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
+ax.set_xlabel("Time (days)", fontsize=11)
+ax.set_ylabel("Inflammation Index", fontsize=11)
+ax.text(0.02, 0.97, "A", transform=ax.transAxes, fontsize=13, fontweight="bold", va="top")
+ax.legend(loc="upper right", frameon=True, fontsize=10)
+ax.set_axisbelow(True)
+ax.yaxis.grid(True, color="lightgrey", linewidth=0.6)
+ax.xaxis.grid(True, color="lightgrey", linewidth=0.6)
+for spine in ax.spines.values():
+    spine.set_linewidth(0.8)
+
+plt.tight_layout()
+plt.savefig("/mnt/user-data/outputs/inflammation_figure.png", dpi=150, bbox_inches="tight")
+print("Saved.")
